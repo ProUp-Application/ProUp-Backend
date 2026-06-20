@@ -32,6 +32,12 @@ export async function register(input: RegisterInput) {
       },
     });
 
+    if (input.profession) {
+      await tx.professionalProfile.create({
+        data: { userId: created.id, profession: input.profession },
+      });
+    }
+
     await tx.consent.create({
       data: { userId: created.id, type: 'DATA_PROCESSING', granted: true, version: '1.0' },
     });

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { PROFESSIONS } from './shared/professions';
 import healthRoutes from './modules/health/health.routes';
 import authRoutes from './modules/auth/auth.routes';
 import usersRoutes from './modules/users/users.routes';
@@ -8,6 +9,11 @@ import interviewRoutes from './modules/interview/interview.routes';
 import chatRoutes from './modules/chat/chat.routes';
 
 const router = Router();
+
+// Catálogo de profesiones (público) para poblar el selector del frontend
+router.get('/professions', (_req, res) => {
+  res.json({ professions: PROFESSIONS.map((p) => ({ id: p.id, label: p.label })) });
+});
 
 // Rutas de la API (versión 1)
 router.use('/auth', authRoutes); // registro / login / refresh / me

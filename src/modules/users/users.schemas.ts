@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const updateProfileSchema = z.object({
+  profession: z.string().trim().max(80).optional(),
   targetSector: z.string().trim().max(80).optional(),
   experienceLevel: z.enum(['STUDENT', 'JUNIOR', 'SEMI_SENIOR', 'SENIOR']).optional(),
   careerGoals: z.string().trim().max(1000).optional(),

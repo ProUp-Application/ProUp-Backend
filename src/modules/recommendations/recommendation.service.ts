@@ -2,8 +2,14 @@ import { AnalysisResult, Prisma, RecommendationCategory } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { llmComplete } from '../../lib/llm';
 import { AppError } from '../../utils/AppError';
+import { professionLabel } from '../../shared/professions';
 import { band } from '../analysis/scoring';
 import { CATEGORY_SCORE_KEY, RECOMMENDATION_CATALOG } from './recommendation.catalog';
+
+interface RecoContext {
+  sector?: string | null;
+  profession?: string | null;
+}
 
 const PRIORITY_BY_BAND = { BAJA: 1, MEDIA: 2, ALTA: 3 } as const;
 
@@ -29,7 +35,7 @@ function scoreForCategory(result: AnalysisResult, category: RecommendationCatego
  */
 export async function generateForAnalysis(
   result: AnalysisResult,
-  sector?: string | null,
+  ctx: RecoContext = {},
 ): Promise<void> {
   const categories: RecommendationCategory[] = [
     'CLOTHING',
@@ -46,7 +52,7 @@ export async function generateForAnalysis(
     const b = band(score);
     const baseAdvice = RECOMMENDATION_CATALOG[category][b];
 
-    const advice = await enrichAdvice(category, score, sector, baseAdvice);
+    const advice = await enrichAdvice(category, score, ctx, baseAdvice);
 
     rows.push({
       analysisResultId: result.id,
@@ -63,10 +69,10 @@ export async function generateForAnalysis(
 async function enrichAdvice(
   category: RecommendationCategory,
   score: number,
-  sector: string | null | undefined,
+  ctx: RecoContext,
   fallback: string,
 ): Promise<string> {
-  const sectorTxt = sector ? ` para el sector "${sector}"` : '';
+  const prof = professionLabel(ctx.profession);
   const llm = await llmComplete(
     [
       {
@@ -76,7 +82,7 @@ async function enrichAdvice(
       },
       {
         role: 'user',
-        content: `El usuario obtuvo un puntaje de ${score}/100 en la categoría ${category}${sectorTxt}. Dale un consejo breve y accionable para mejorar su imagen profesional en una entrevista de trabajo.`,
+        content: `El usuario es ${prof} y obtuvo ${score}/100 en la categoría ${category}. Dale un consejo breve y accionable, adaptado a su rubro, para mejorar su imagen profesional en una entrevista.`,
       },
     ],
     { temperature: 0.7, maxTokens: 160 },

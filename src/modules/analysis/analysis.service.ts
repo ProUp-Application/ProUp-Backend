@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../utils/AppError';
+import { findProfession } from '../../shared/professions';
 import { generateForAnalysis } from '../recommendations/recommendation.service';
 import { CreateAnalysisInput } from './analysis.schemas';
 import { computeOverall } from './scoring';
@@ -10,7 +11,7 @@ import { computeOverall } from './scoring';
  */
 export async function createAnalysis(userId: string, input: CreateAnalysisInput) {
   const profile = await prisma.professionalProfile.findUnique({ where: { userId } });
-  const sector = profile?.targetSector ?? null;
+  const sector = findProfession(profile?.profession)?.sector ?? profile?.targetSector ?? null;
   const overall = computeOverall(input.scores, sector);
 
   const request = await prisma.analysisRequest.create({
@@ -35,7 +36,7 @@ export async function createAnalysis(userId: string, input: CreateAnalysisInput)
   });
 
   if (request.result) {
-    await generateForAnalysis(request.result, sector);
+    await generateForAnalysis(request.result, { sector, profession: profile?.profession });
     await prisma.auditEvent.create({
       data: { userId, eventType: 'ANALYSIS_CREATED', requestId: request.id },
     });

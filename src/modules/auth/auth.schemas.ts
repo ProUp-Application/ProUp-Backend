@@ -5,6 +5,7 @@ export const registerSchema = z.object({
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   firstName: z.string().min(1, 'El nombre es obligatorio').trim(),
   lastName: z.string().min(1, 'El apellido es obligatorio').trim(),
+  profession: z.string().trim().max(80).optional(),
   // Consentimiento informado (Ley 29733): obligatorio para registrarse
   acceptedTerms: z.literal(true, {
     errorMap: () => ({ message: 'Debes aceptar el tratamiento de datos personales' }),

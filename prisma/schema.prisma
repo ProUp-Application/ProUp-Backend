@@ -97,6 +97,7 @@ model User {
 model ProfessionalProfile {
   id              String           @id @default(uuid()) @db.Uuid
   userId          String           @unique @map("user_id") @db.Uuid
+  profession      String?          // profesión del usuario (eje de personalización)
   targetSector    String?          @map("target_sector")
   experienceLevel ExperienceLevel? @map("experience_level")
   careerGoals     String?          @map("career_goals")
