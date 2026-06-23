@@ -1,0 +1,301 @@
+// ============================================================================
+//  ProUp — Esquema de base de datos (PostgreSQL)
+//  Fiel al Diagrama de Clases / Diagrama de BD de la tesis.
+//  Decisiones MVP: una sola base PostgreSQL (chat con JSONB en lugar de MongoDB),
+//  visión 100% on-device (no se almacenan imágenes; solo scores y metadatos).
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+//  Enums
+// ---------------------------------------------------------------------------
+enum ExperienceLevel {
+  STUDENT
+  JUNIOR
+  SEMI_SENIOR
+  SENIOR
+}
+
+enum CaptureType {
+  SELFIE
+  FULL_BODY
+}
+
+enum AnalysisStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ClothingFormality {
+  CASUAL
+  SEMI_FORMAL
+  FORMAL
+}
+
+enum RecommendationCategory {
+  CLOTHING
+  POSTURE
+  EXPRESSION
+  CONTEXT
+  SOFT_SKILLS
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ConsentType {
+  DATA_PROCESSING // tratamiento de datos personales (Ley 29733)
+  BIOMETRIC_ONDEVICE // procesamiento biométrico on-device
+  MARKETING
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+}
+
+// ---------------------------------------------------------------------------
+//  Usuario (raíz del dominio)
+// ---------------------------------------------------------------------------
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relaciones (ON DELETE CASCADE para soportar el borrado ARCO real)
+  profile          ProfessionalProfile?
+  consents         Consent[]
+  devices          Device[]
+  analysisRequests AnalysisRequest[]
+  interviews       InterviewSimulation[]
+  chatSessions     ChatSession[]
+  auditEvents      AuditEvent[]
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+//  Perfil profesional (1:1 con User)
+// ---------------------------------------------------------------------------
+model ProfessionalProfile {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @unique @map("user_id") @db.Uuid
+  profession      String?          // profesión del usuario (eje de personalización)
+  targetSector    String?          @map("target_sector")
+  experienceLevel ExperienceLevel? @map("experience_level")
+  careerGoals     String?          @map("career_goals")
+  preferredJobType String?         @map("preferred_job_type")
+  location        String?
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("professional_profiles")
+}
+
+// ---------------------------------------------------------------------------
+//  Consentimiento (Ley 29733)
+// ---------------------------------------------------------------------------
+model Consent {
+  id        String      @id @default(uuid()) @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  type      ConsentType
+  granted   Boolean     @default(true)
+  version   String      @default("1.0")
+  grantedAt DateTime    @default(now()) @map("granted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("consents")
+}
+
+// ---------------------------------------------------------------------------
+//  Dispositivos (para notificaciones push - FCM)
+// ---------------------------------------------------------------------------
+model Device {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  deviceToken String         @map("device_token")
+  platform    DevicePlatform
+  osVersion   String?        @map("os_version")
+  lastSeenAt  DateTime       @default(now()) @map("last_seen_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceToken])
+  @@index([userId])
+  @@map("devices")
+}
+
+// ---------------------------------------------------------------------------
+//  Análisis de imagen (la imagen NUNCA se sube: solo scores y metadatos)
+// ---------------------------------------------------------------------------
+model AnalysisRequest {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  captureType CaptureType    @map("capture_type")
+  status      AnalysisStatus @default(COMPLETED)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  result AnalysisResult?
+
+  @@index([userId])
+  @@map("analysis_requests")
+}
+
+model AnalysisResult {
+  id                String             @id @default(uuid()) @db.Uuid
+  analysisRequestId String             @unique @map("analysis_request_id") @db.Uuid
+  // Scores en escala entera 0-100 (calculados on-device)
+  faceScore         Int                @map("face_score")
+  clothingScore     Int                @map("clothing_score")
+  postureScore      Int                @map("posture_score")
+  contextScore      Int                @map("context_score")
+  overallScore      Int                @map("overall_score")
+  clothingFormality ClothingFormality? @map("clothing_formality")
+  emotionDetected   String?            @map("emotion_detected")
+  // Métricas crudas no biométricas (no reconstruyen el rostro)
+  rawMetrics        Json?              @map("raw_metrics")
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  analysisRequest AnalysisRequest  @relation(fields: [analysisRequestId], references: [id], onDelete: Cascade)
+  recommendations Recommendation[]
+
+  @@map("analysis_results")
+}
+
+// ---------------------------------------------------------------------------
+//  Recomendaciones + feedback
+// ---------------------------------------------------------------------------
+model Recommendation {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  analysisResultId      String                 @map("analysis_result_id") @db.Uuid
+  category              RecommendationCategory
+  description           String
+  priority              Int                    @default(1)
+  naturalLanguageAdvice String?                @map("natural_language_advice")
+  applied               Boolean                @default(false)
+  createdAt             DateTime               @default(now()) @map("created_at")
+
+  analysisResult AnalysisResult @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
+  feedback       UserFeedback?
+
+  @@index([analysisResultId])
+  @@map("recommendations")
+}
+
+model UserFeedback {
+  id               String   @id @default(uuid()) @db.Uuid
+  recommendationId String   @unique @map("recommendation_id") @db.Uuid
+  rating           Int // 1-5
+  comments         String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@map("user_feedback")
+}
+
+// ---------------------------------------------------------------------------
+//  Simulador de entrevistas (se CONSERVA en el MVP)
+// ---------------------------------------------------------------------------
+model InterviewSimulation {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  track           String? // sector/carrera de la simulación
+  durationSeconds Int?     @map("duration_seconds")
+  nonVerbalScore  Int?     @map("non_verbal_score")
+  confidenceScore Int?     @map("confidence_score")
+  overallScore    Int?     @map("overall_score")
+  questions       Json? // preguntas generadas por el LLM
+  responses       Json? // respuestas del usuario
+  strengths       Json? // fortalezas detectadas
+  improvements    Json? // puntos a mejorar
+  feedback        String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("interview_simulations")
+}
+
+// ---------------------------------------------------------------------------
+//  Chatbot (en PostgreSQL con JSONB en lugar de MongoDB)
+// ---------------------------------------------------------------------------
+model ChatSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @map("session_id") @db.Uuid
+  role      ChatRole
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("chat_messages")
+}
+
+// ---------------------------------------------------------------------------
+//  Catálogo de sectores (formalidad esperada por sector)
+// ---------------------------------------------------------------------------
+model SectorCatalog {
+  id                   String   @id @default(uuid()) @db.Uuid
+  name                 String   @unique
+  formalityRequirements Json?   @map("formality_requirements")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  @@map("sectors_catalog")
+}
+
+// ---------------------------------------------------------------------------
+//  Auditoría inmutable
+// ---------------------------------------------------------------------------
+model AuditEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  eventType String   @map("event_type")
+  requestId String?  @map("request_id")
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@map("audit_events")
+}

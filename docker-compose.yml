@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: proup_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: proup
+      POSTGRES_PASSWORD: proup
+      POSTGRES_DB: proup
+    ports:
+      # 5433 en el host para no chocar con un PostgreSQL local en 5432
+      - "5433:5432"
+    volumes:
+      - proup_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proup -d proup"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  proup_pgdata:
