@@ -6,17 +6,23 @@ El backend está listo para desplegarse con el `Dockerfile` incluido. Recomendad
 
 1. Crea una cuenta en [railway.app](https://railway.app) e inicia sesión con GitHub.
 2. **New Project → Deploy from GitHub repo →** elige `ProUp-Application/ProUp-Backend` (rama `main`, tras fusionar el PR).
-3. **Add a service → Database → PostgreSQL.** Railway crea la base y expone la variable **`DATABASE_URL`** automáticamente.
-4. En el servicio del backend, ve a **Variables** y agrega:
+3. **Add a service → Database → PostgreSQL.** Railway crea la base y expone su `DATABASE_URL` **en el servicio de la base de datos** (NO en el del backend).
+4. En el servicio del **backend**, ve a **Variables** y agrega:
    | Variable | Valor |
    |---|---|
+   | `DATABASE_URL` | **referencia a la BD** → `${{Postgres.DATABASE_URL}}` (usa "Add Reference" y elige la BD; ajusta `Postgres` al nombre real del servicio de base de datos) |
    | `JWT_ACCESS_SECRET` | (una cadena larga y secreta) |
    | `JWT_REFRESH_SECRET` | (otra cadena larga y secreta) |
    | `LLM_PROVIDER` | `groq` |
    | `GROQ_API_KEY` | (tu API key de Groq) |
    | `GROQ_MODEL` | `llama-3.3-70b-versatile` |
 
-   > `DATABASE_URL` y `PORT` los inyecta Railway automáticamente. **No subas la API key al repo** (ya está en `.gitignore`); se configura aquí.
+   > ⚠️ **`DATABASE_URL` NO se comparte sola entre servicios** — debes agregarla en el backend como referencia (paso de arriba). `PORT` sí lo inyecta Railway. **No subas la API key al repo** (ya está en `.gitignore`).
+
+## Troubleshooting
+
+**`Error: Environment variable not found: DATABASE_URL` (el backend crashea en bucle):**
+Falta `DATABASE_URL` en el servicio del backend. Solución: agrégala como referencia a la base de datos (paso 4: `${{Postgres.DATABASE_URL}}`) y vuelve a desplegar. Verifica que el nombre del servicio de BD en `${{...}}` coincida con el real.
 5. Railway construye con el `Dockerfile`, aplica las migraciones (`prisma migrate deploy`) y arranca el servidor.
 6. En **Settings → Networking → Generate Domain** obtienes una URL pública, p. ej. `https://proup-backend-production.up.railway.app`.
 
