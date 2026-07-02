@@ -187,6 +187,20 @@ export async function getMessages(userId: string, sessionId: string) {
   return prisma.chatMessage.findMany({ where: { sessionId }, orderBy: { createdAt: 'asc' } });
 }
 
+/** Revisa un CV adjunto: extrae el texto y se lo pasa al asesor como mensaje. */
+export async function reviewCvFile(
+  userId: string,
+  sessionId: string,
+  file: { buffer: Buffer; originalname: string; mimetype: string },
+) {
+  const { extractCvText } = await import('./attachment.service');
+  const text = await extractCvText(file);
+  const content =
+    `He adjuntado mi CV ("${file.originalname}"). Este es su contenido:\n\n${text}\n\n` +
+    'Por favor revísalo como reclutador peruano: dime qué mejorar en logros, estructura y redacción, con recomendaciones concretas.';
+  return sendMessage(userId, sessionId, content);
+}
+
 export async function sendMessage(userId: string, sessionId: string, content: string) {
   await assertOwnership(userId, sessionId);
 

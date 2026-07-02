@@ -27,3 +27,14 @@ export const sendMessageHandler = asyncHandler(async (req: Request, res: Respons
   const message = await chatService.sendMessage(uid(req), req.params.id, req.body.content);
   res.status(201).json({ message });
 });
+
+export const uploadCvHandler = asyncHandler(async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) throw AppError.badRequest('Adjunta un archivo en el campo "file"', 'FILE_REQUIRED');
+  const message = await chatService.reviewCvFile(uid(req), req.params.id, {
+    buffer: file.buffer,
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+  });
+  res.status(201).json({ message });
+});

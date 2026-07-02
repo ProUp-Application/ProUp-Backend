@@ -119,17 +119,33 @@ function questionInstructions(kind: TrackKind, prof: Profession, level: string |
   }
 }
 
-async function generateQuestions(kind: TrackKind, track: string, prof: Profession, level: string | null): Promise<string[]> {
+async function generateQuestions(
+  kind: TrackKind,
+  track: string,
+  prof: Profession,
+  level: string | null,
+  opts: { avoid?: string[]; goals?: string | null } = {},
+): Promise<string[]> {
+  let user = questionInstructions(kind, prof, level);
+  if (opts.goals) {
+    user += ` Metas profesionales declaradas por el usuario (úsalas para contextualizar alguna pregunta): "${opts.goals}".`;
+  }
+  if (opts.avoid && opts.avoid.length > 0) {
+    user +=
+      '\n\nIMPORTANTE — este usuario YA practicó con las siguientes preguntas; NO las repitas ni las parafrasees, aborda ángulos y temas distintos:\n' +
+      opts.avoid.map((q) => `- ${q}`).join('\n');
+  }
+
   const raw = await llmComplete(
     [
       {
         role: 'system',
         content:
-          'Eres un reclutador peruano experto en entrevistas laborales. Devuelve SOLO un arreglo JSON de strings en español, sin texto adicional ni markdown.',
+          'Eres un reclutador peruano experto en entrevistas laborales. Cada sesión debe sentirse fresca: varía temas, ángulos y dificultad. Devuelve SOLO un arreglo JSON de strings en español, sin texto adicional ni markdown.',
       },
-      { role: 'user', content: questionInstructions(kind, prof, level) },
+      { role: 'user', content: user },
     ],
-    { temperature: 0.85, maxTokens: 500 },
+    { temperature: 0.9, maxTokens: 520 },
   );
 
   const parsed = tryParseStringArray(raw);
@@ -145,7 +161,21 @@ export async function startInterview(userId: string, track: string) {
   const level = profile?.experienceLevel ? LEVEL_LABELS[profile.experienceLevel] ?? null : null;
   const kind = classifyTrack(track);
 
-  const questions = await generateQuestions(kind, track, prof, level);
+  // Preguntas ya usadas recientemente por este usuario (para no repetir)
+  const recent = await prisma.interviewSimulation.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: 4,
+    select: { questions: true },
+  });
+  const avoid = recent
+    .flatMap((r) => (Array.isArray(r.questions) ? (r.questions as unknown[]).map(String) : []))
+    .slice(0, 18);
+
+  const questions = await generateQuestions(kind, track, prof, level, {
+    avoid,
+    goals: profile?.careerGoals ?? null,
+  });
 
   const simulation = await prisma.interviewSimulation.create({
     data: { userId, track: `${track} · ${prof.label}`, questions },
