@@ -41,6 +41,19 @@ export function computeOverall(scores: PartialScores, sector?: string | null): n
   return clamp(s.face * w.face + s.clothing * w.clothing + s.posture * w.posture + s.context * w.context);
 }
 
+/**
+ * Topes por problemas detectados on-device (rawMetrics). Los pesos por sector pueden
+ * compensar un rostro bajo con un buen entorno; estos topes lo impiden:
+ * - lentes de sol / ojos no visibles → nunca más que "Por mejorar" (≤ 45)
+ * - gorra / sombrero                 → nunca "Profesional" (≤ 65)
+ */
+export function applyIssueCaps(overall: number, rawMetrics?: Record<string, unknown> | null): number {
+  let capped = overall;
+  if (rawMetrics?.sunglasses === true) capped = Math.min(capped, 45);
+  if (rawMetrics?.hat === true) capped = Math.min(capped, 65);
+  return capped;
+}
+
 export type Band = 'BAJA' | 'MEDIA' | 'ALTA';
 
 export function band(score: number): Band {

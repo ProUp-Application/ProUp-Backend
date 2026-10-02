@@ -101,7 +101,8 @@ function systemPrompt(ctx: AdvisorContext): string {
   const lines = [
     'Eres ProUp, el asesor virtual de carrera de la app móvil ProUp, para jóvenes profesionales en Lima, Perú.',
     'SOBRE LA APP: ProUp analiza la imagen profesional del usuario directamente en su teléfono (la foto nunca sale del dispositivo, por privacidad). El análisis puntúa de 0 a 100 cuatro categorías: rostro/expresión, vestimenta (con nivel de formalidad), postura y entorno/iluminación; con ellas calcula un puntaje global (0-49 = "Por mejorar", 50-74 = "Aceptable", 75-100 = "Profesional") y genera recomendaciones personalizadas. La app también incluye un simulador de entrevistas con IA (comportamental, técnica, presencia ejecutiva y elevator pitch) y un panel de progreso.',
-    `USUARIO: ${ctx.firstName ?? 'joven profesional'}, ${ctx.prof}${ctx.level ? `, nivel ${ctx.level}` : ''}.`,
+    `PERFIL ACTUAL DEL USUARIO (fuente de verdad, recién leído de su perfil): ${ctx.firstName ?? 'joven profesional'}, profesión: ${ctx.prof}${ctx.level ? `, nivel ${ctx.level}` : ''}.`,
+    'IMPORTANTE SOBRE LA PROFESIÓN: usa SIEMPRE la profesión del PERFIL ACTUAL indicada arriba. El usuario puede haber cambiado de carrera; si en mensajes anteriores de esta conversación se mencionó una profesión distinta a la actual, considérala desactualizada e ignórala, y adapta todos tus consejos a la profesión actual.',
   ];
 
   if (ctx.analysis) {
@@ -223,6 +224,13 @@ export async function sendMessage(userId: string, sessionId: string, content: st
       role: m.role === 'ASSISTANT' ? ('assistant' as const) : ('user' as const),
       content: m.content,
     })),
+    // Recordatorio final (va DESPUÉS del historial → por recencia prevalece sobre
+    // cualquier carrera mencionada antes en la conversación). Corrige el caso en que
+    // el usuario cambia de profesión en su perfil y el bot seguía con la anterior.
+    {
+      role: 'system',
+      content: `RECORDATORIO (perfil actual, prioritario sobre el historial de esta conversación): la profesión actual del usuario es ${ctx.prof}${ctx.level ? `, nivel ${ctx.level}` : ''}. Responde con base en ESTA profesión, aunque en mensajes anteriores se haya hablado de otra.`,
+    },
   ];
 
   const reply =
