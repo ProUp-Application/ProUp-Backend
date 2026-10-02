@@ -3,7 +3,7 @@ import { AppError } from '../../utils/AppError';
 import { findProfession } from '../../shared/professions';
 import { generateForAnalysis } from '../recommendations/recommendation.service';
 import { CreateAnalysisInput } from './analysis.schemas';
-import { computeOverall } from './scoring';
+import { applyIssueCaps, computeOverall } from './scoring';
 
 /**
  * Registra un análisis a partir de los scores calculados ON-DEVICE.
@@ -12,7 +12,7 @@ import { computeOverall } from './scoring';
 export async function createAnalysis(userId: string, input: CreateAnalysisInput) {
   const profile = await prisma.professionalProfile.findUnique({ where: { userId } });
   const sector = findProfession(profile?.profession)?.sector ?? profile?.targetSector ?? null;
-  const overall = computeOverall(input.scores, sector);
+  const overall = applyIssueCaps(computeOverall(input.scores, sector), input.rawMetrics);
 
   const request = await prisma.analysisRequest.create({
     data: {

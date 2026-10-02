@@ -47,12 +47,20 @@ export async function generateForAnalysis(
 
   const rows: Prisma.RecommendationCreateManyInput[] = [];
 
+  // Problemas detectados on-device: el consejo debe nombrarlos explícitamente
+  const metrics = (result.rawMetrics ?? {}) as Record<string, unknown>;
+  const detected = [
+    metrics.sunglasses === true ? 'lleva lentes de sol (no se le ven los ojos)' : null,
+    metrics.hat === true ? 'lleva gorra o sombrero' : null,
+  ].filter((d): d is string => d !== null);
+
   for (const category of categories) {
     const score = scoreForCategory(result, category);
     const b = band(score);
     const baseAdvice = RECOMMENDATION_CATALOG[category][b];
 
-    const advice = await enrichAdvice(category, score, ctx, baseAdvice);
+    const relevant = category === 'EXPRESSION' || category === 'CLOTHING' ? detected : [];
+    const advice = await enrichAdvice(category, score, ctx, baseAdvice, relevant);
 
     rows.push({
       analysisResultId: result.id,
@@ -71,8 +79,12 @@ async function enrichAdvice(
   score: number,
   ctx: RecoContext,
   fallback: string,
+  detected: string[] = [],
 ): Promise<string> {
   const prof = professionLabel(ctx.profession);
+  const issues = detected.length
+    ? ` En su foto se detectó que ${detected.join(' y ')}: menciónalo y dile que se lo quite para la entrevista.`
+    : '';
   const llm = await llmComplete(
     [
       {
@@ -82,7 +94,7 @@ async function enrichAdvice(
       },
       {
         role: 'user',
-        content: `El usuario es ${prof} y obtuvo ${score}/100 en la categoría ${category}. Dale un consejo breve y accionable, adaptado a su rubro, para mejorar su imagen profesional en una entrevista.`,
+        content: `El usuario es ${prof} y obtuvo ${score}/100 en la categoría ${category}. Dale un consejo breve y accionable, adaptado a su rubro, para mejorar su imagen profesional en una entrevista.${issues}`,
       },
     ],
     { temperature: 0.7, maxTokens: 160 },

@@ -13,7 +13,7 @@ const schema = z.object({
   // LLM gratuito (opcional). Si no se configura, el sistema usa respuestas de fallback.
   LLM_PROVIDER: z.enum(['groq', 'gemini']).optional(),
   GROQ_API_KEY: z.string().optional(),
-  GROQ_MODEL: z.string().default('llama-3.1-8b-instant'),
+  GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-1.5-flash'),
 });

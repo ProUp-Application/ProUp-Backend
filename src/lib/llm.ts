@@ -36,34 +36,65 @@ export async function llmComplete(
   }
 }
 
+/**
+ * Modelos de respaldo si el configurado no está disponible:
+ * - retirado por Groq (404/400): pasó con llama-3.3-70b-versatile y llama-3.1-8b-instant,
+ *   y el chatbot caía siempre al fallback;
+ * - límite de uso del plan gratuito (429): cada modelo tiene su propia cuota, así que
+ *   con varios usuarios a la vez se reparte la carga en lugar de caer al fallback.
+ */
+const GROQ_FALLBACK_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
+let groqWorkingModel: string | null = null;
+
 async function callGroq(
   messages: LlmMessage[],
   opts: { temperature?: number; maxTokens?: number },
 ): Promise<string | null> {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: env.GROQ_MODEL,
-      messages,
-      temperature: opts.temperature ?? 0.7,
-      max_tokens: opts.maxTokens ?? 800,
-    }),
-  });
-  if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return data.choices?.[0]?.message?.content?.trim() ?? null;
+  const candidates = [...new Set([groqWorkingModel ?? env.GROQ_MODEL, env.GROQ_MODEL, ...GROQ_FALLBACK_MODELS])];
+
+  for (const model of candidates) {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: opts.maxTokens ?? 800,
+        // gpt-oss "razona" antes de responder y eso consume max_tokens: esfuerzo bajo
+        ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
+      }),
+    });
+    // 404 / 400 = modelo inexistente o retirado → no volver a usarlo
+    if (res.status === 404 || res.status === 400) {
+      if (groqWorkingModel === model) groqWorkingModel = null;
+      logger.warn({ model, status: res.status }, 'Modelo de Groq no disponible, probando el siguiente');
+      continue;
+    }
+    // 429 = cuota por minuto agotada en este modelo → probar otro (sin olvidarlo)
+    if (res.status === 429) {
+      logger.warn({ model }, 'Límite de uso de Groq en este modelo, probando el siguiente');
+      continue;
+    }
+    if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    groqWorkingModel = model;
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  }
+  throw new Error('Ningún modelo de Groq disponible');
 }
 
 async function callGemini(
   messages: LlmMessage[],
   opts: { temperature?: number; maxTokens?: number },
 ): Promise<string | null> {
-  // Gemini no tiene "system": se antepone como contexto del primer turno.
-  const system = messages.find((m) => m.role === 'system')?.content;
+  // Gemini no tiene "system": se combinan TODOS los mensajes de sistema (incluido
+  // el recordatorio de perfil que va al final) en una sola systemInstruction.
+  const systemParts = messages.filter((m) => m.role === 'system').map((m) => m.content);
+  const system = systemParts.length ? systemParts.join('\n\n') : undefined;
   const contents = messages
     .filter((m) => m.role !== 'system')
     .map((m) => ({
