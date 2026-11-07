@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { llmComplete, LlmMessage } from '../../lib/llm';
+import { llmComplete, LlmMessage, toPlainText } from '../../lib/llm';
 import { AppError } from '../../utils/AppError';
 import { professionLabel } from '../../shared/professions';
 import { bandLabel } from '../analysis/scoring';
@@ -126,7 +126,8 @@ function systemPrompt(ctx: AdvisorContext): string {
   }
 
   lines.push(
-    'Responde en español, breve (máximo 4-5 frases), práctico, cálido y motivador. Cuando el usuario pregunte por sus resultados, usa SUS datos reales (los de arriba) y prioriza la categoría más baja. Temas: entrevistas, imagen profesional, vestimenta, comunicación, CV y mercado laboral peruano.',
+    'Responde en español, breve (máximo 4-5 frases o unas 100 palabras), práctico, cálido y motivador. Cuando el usuario pregunte por sus resultados, usa SUS datos reales (los de arriba) y prioriza la categoría más baja. Temas: entrevistas, imagen profesional, vestimenta, comunicación, CV y mercado laboral peruano.',
+    'FORMATO: la app muestra tu respuesta como texto plano. NO uses Markdown: nada de **negritas**, # títulos, tablas ni bloques de código. Si necesitas enumerar, usa como máximo 3-4 puntos con "1." o "-".',
     'REVISIÓN DE CV: cuando el usuario comparta el texto de su CV (pegado o como archivo adjunto), revisarlo ES parte central de tu trabajo — NUNCA lo rechaces. Analiza logros (¿son medibles?), estructura, redacción y adecuación al mercado laboral peruano, y responde con 3-5 recomendaciones concretas y accionables (en este caso puedes extenderte más de 5 frases).',
     'Solo si preguntan algo claramente fuera del ámbito laboral/profesional (p. ej. recetas, deportes), redirige amablemente.',
   );
@@ -229,12 +230,12 @@ export async function sendMessage(userId: string, sessionId: string, content: st
     // el usuario cambia de profesión en su perfil y el bot seguía con la anterior.
     {
       role: 'system',
-      content: `RECORDATORIO (perfil actual, prioritario sobre el historial de esta conversación): la profesión actual del usuario es ${ctx.prof}${ctx.level ? `, nivel ${ctx.level}` : ''}. Responde con base en ESTA profesión, aunque en mensajes anteriores se haya hablado de otra.`,
+      content: `RECORDATORIO (perfil actual, prioritario sobre el historial de esta conversación): la profesión actual del usuario es ${ctx.prof}${ctx.level ? `, nivel ${ctx.level}` : ''}. Responde con base en ESTA profesión, aunque en mensajes anteriores se haya hablado de otra. Responde breve y en texto plano, sin Markdown.`,
     },
   ];
 
-  const reply =
-    (await llmComplete(messages, { temperature: 0.7, maxTokens: 500 })) ?? smartFallback(content, ctx);
+  const llmReply = await llmComplete(messages, { temperature: 0.7, maxTokens: 500 });
+  const reply = llmReply ? toPlainText(llmReply) : smartFallback(content, ctx);
 
   return prisma.chatMessage.create({ data: { sessionId, role: 'ASSISTANT', content: reply } });
 }

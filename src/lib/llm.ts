@@ -6,6 +6,24 @@ export interface LlmMessage {
   content: string;
 }
 
+/**
+ * Convierte la respuesta del LLM a texto plano. La app muestra el texto tal cual,
+ * y modelos como gpt-oss responden con Markdown (**negritas**, # títulos) que se
+ * veía con los asteriscos en pantalla.
+ */
+export function toPlainText(text: string): string {
+  return text
+    .replace(/\*\*([\s\S]+?)\*\*/g, '$1') // **negrita**
+    .replace(/__([\s\S]+?)__/g, '$1') // __negrita__
+    .replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s.,;:!?)]|$)/gm, '$1$2') // *cursiva*
+    .replace(/`([^`\n]+)`/g, '$1') // `código`
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // # títulos
+    .replace(/^(\s*)[*•]\s+/gm, '$1- ') // viñetas "* " → "- "
+    .replace(/\*\*/g, '') // asteriscos dobles sueltos
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** ¿Hay un proveedor de LLM configurado con su API key? */
 export function isLlmEnabled(): boolean {
   if (env.LLM_PROVIDER === 'groq') return !!env.GROQ_API_KEY;
