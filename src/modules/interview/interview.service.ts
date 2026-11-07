@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { llmComplete } from '../../lib/llm';
+import { llmComplete, toPlainText } from '../../lib/llm';
 import { AppError } from '../../utils/AppError';
 import { findProfession, professionLabel, Profession } from '../../shared/professions';
 import { SubmitInterviewInput } from './interview.schemas';
@@ -294,7 +294,7 @@ function tryParseStringArray(raw: string | null): string[] | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(stripFences(raw));
-    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v;
+    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v.map(toPlainText);
     return null;
   } catch {
     return null;
@@ -308,9 +308,9 @@ function tryParseEvaluation(raw: string | null): Evaluation | null {
     if (typeof v.contentScore !== 'number') return null;
     return {
       contentScore: Math.max(0, Math.min(100, Math.round(v.contentScore))),
-      strengths: Array.isArray(v.strengths) ? v.strengths.map(String) : [],
-      improvements: Array.isArray(v.improvements) ? v.improvements.map(String) : [],
-      feedback: typeof v.feedback === 'string' ? v.feedback : '',
+      strengths: Array.isArray(v.strengths) ? v.strengths.map((s: unknown) => toPlainText(String(s))) : [],
+      improvements: Array.isArray(v.improvements) ? v.improvements.map((s: unknown) => toPlainText(String(s))) : [],
+      feedback: typeof v.feedback === 'string' ? toPlainText(v.feedback) : '',
     };
   } catch {
     return null;

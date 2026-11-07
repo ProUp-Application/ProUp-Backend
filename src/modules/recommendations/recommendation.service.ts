@@ -1,6 +1,6 @@
 import { AnalysisResult, Prisma, RecommendationCategory } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { llmComplete } from '../../lib/llm';
+import { llmComplete, toPlainText } from '../../lib/llm';
 import { AppError } from '../../utils/AppError';
 import { professionLabel } from '../../shared/professions';
 import { band } from '../analysis/scoring';
@@ -90,7 +90,7 @@ async function enrichAdvice(
       {
         role: 'system',
         content:
-          'Eres un asesor de imagen profesional y empleabilidad para jóvenes en Lima, Perú. Das consejos breves (máximo 2 frases), concretos, motivadores y en español.',
+          'Eres un asesor de imagen profesional y empleabilidad para jóvenes en Lima, Perú. Das consejos breves (máximo 2 frases), concretos, motivadores y en español, en texto plano sin Markdown.',
       },
       {
         role: 'user',
@@ -99,7 +99,7 @@ async function enrichAdvice(
     ],
     { temperature: 0.7, maxTokens: 160 },
   );
-  return llm ?? fallback;
+  return llm ? toPlainText(llm) : fallback;
 }
 
 export async function addFeedback(
