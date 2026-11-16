@@ -7,6 +7,7 @@ import analysisRoutes from './modules/analysis/analysis.routes';
 import recommendationRoutes from './modules/recommendations/recommendation.routes';
 import interviewRoutes from './modules/interview/interview.routes';
 import chatRoutes from './modules/chat/chat.routes';
+import cvRoutes from './modules/cv/cv.routes';
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.use('/analysis', analysisRoutes); // recibe scores on-device + genera rec
 router.use('/recommendations', recommendationRoutes); // feedback / aplicar
 router.use('/interview', interviewRoutes); // simulador de entrevistas
 router.use('/chat', chatRoutes); // chatbot
+router.use('/cv', cvRoutes); // mejorar CV: análisis, versión mejorada, Word y vacantes
 
 export { healthRoutes };
 export default router;

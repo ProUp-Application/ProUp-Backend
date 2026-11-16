@@ -2,16 +2,22 @@
  * Reglas de cálculo de scores de imagen profesional.
  * Escala 0-100 (entero). Pesos heurísticos (NO validados empíricamente):
  * se documentan así y se ajustan por sector. Ver RECOMENDACIONES_ARQUITECTO_MVP.md (D4).
+ *
+ * Solo se puntúa lo que se ve en la foto: vestimenta y postura llegan como `null`
+ * cuando el encuadre no las muestra (p. ej. un primer plano). En ese caso el puntaje
+ * global se calcula con las categorías evaluadas y sus pesos se renormalizan, en vez
+ * de rellenar lo que falta con un valor supuesto.
  */
 
 export interface PartialScores {
   face: number;
-  clothing: number;
-  posture: number;
+  clothing: number | null;
+  posture: number | null;
   context: number;
 }
 
-type Weights = { face: number; clothing: number; posture: number; context: number };
+type Category = 'face' | 'clothing' | 'posture' | 'context';
+type Weights = Record<Category, number>;
 
 const SECTOR_WEIGHTS: Record<string, Weights> = {
   default: { face: 0.3, clothing: 0.3, posture: 0.25, context: 0.15 },
@@ -30,15 +36,20 @@ export function weightsForSector(sector?: string | null): Weights {
   return SECTOR_WEIGHTS[sector.toLowerCase().trim()] ?? SECTOR_WEIGHTS.default;
 }
 
+/** Categorías con puntaje (las que se vieron en la foto). */
+export function evaluatedCategories(scores: PartialScores): Category[] {
+  return (['face', 'clothing', 'posture', 'context'] as Category[]).filter(
+    (c) => typeof scores[c] === 'number',
+  );
+}
+
 export function computeOverall(scores: PartialScores, sector?: string | null): number {
   const w = weightsForSector(sector);
-  const s = {
-    face: clamp(scores.face),
-    clothing: clamp(scores.clothing),
-    posture: clamp(scores.posture),
-    context: clamp(scores.context),
-  };
-  return clamp(s.face * w.face + s.clothing * w.clothing + s.posture * w.posture + s.context * w.context);
+  const cats = evaluatedCategories(scores);
+  const totalWeight = cats.reduce((acc, c) => acc + w[c], 0);
+  if (totalWeight === 0) return 0;
+  const sum = cats.reduce((acc, c) => acc + clamp(scores[c] as number) * w[c], 0);
+  return clamp(sum / totalWeight);
 }
 
 /**

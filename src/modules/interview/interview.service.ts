@@ -1,8 +1,10 @@
 import { prisma } from '../../lib/prisma';
-import { llmComplete, toPlainText } from '../../lib/llm';
+import { extractJsonObject, llmComplete, toPlainText } from '../../lib/llm';
+import { logger } from '../../lib/logger';
 import { AppError } from '../../utils/AppError';
 import { findProfession, professionLabel, Profession } from '../../shared/professions';
 import { SubmitInterviewInput } from './interview.schemas';
+import { combineOverall, timeLimitFor, timeNote, TrackKind } from './interview.timing';
 
 // ---------------------------------------------------------------------------
 //  Tipos de entrevista (tracks)
@@ -12,8 +14,6 @@ import { SubmitInterviewInput } from './interview.schemas';
 //                profesional (sin asumir que ya es gerente).
 //  - PITCH:      consignas de elevator pitch de ~60 segundos (3, no 5).
 // ---------------------------------------------------------------------------
-type TrackKind = 'BEHAVIORAL' | 'TECHNICAL' | 'EXECUTIVE' | 'PITCH';
-
 function classifyTrack(track: string): TrackKind {
   const t = track.toLowerCase();
   if (t.includes('técnic') || t.includes('tecnic') || t.includes('caso')) return 'TECHNICAL';
@@ -181,7 +181,14 @@ export async function startInterview(userId: string, track: string) {
     data: { userId, track: `${track} · ${prof.label}`, questions },
   });
 
-  return { id: simulation.id, track, profession: prof.label, questions };
+  return {
+    id: simulation.id,
+    track,
+    profession: prof.label,
+    questions,
+    // Tiempo de referencia por respuesta (el Elevator Pitch dura 60 s por diseño)
+    timeLimitSeconds: timeLimitFor(kind),
+  };
 }
 
 // ----------------------- Evaluación -----------------------
@@ -208,11 +215,22 @@ export async function submitInterview(userId: string, id: string, input: SubmitI
   const kind = classifyTrack(sim.track ?? '');
 
   const evaluation = await evaluateResponses(input, prof, kind);
+  const overall = combineOverall(evaluation.contentScore, input.nonVerbalScore);
 
-  const parts = [evaluation.contentScore];
-  if (typeof input.nonVerbalScore === 'number') parts.push(input.nonVerbalScore);
-  if (typeof input.confidenceScore === 'number') parts.push(input.confidenceScore);
-  const overall = Math.round(parts.reduce((a, b) => a + b, 0) / parts.length);
+  // Retroalimentación por pregunta (contenido + tiempo usado + modo de respuesta)
+  const questionFeedback = input.responses.map((r, i) => {
+    const pq = evaluation.perQuestion.find((q) => q.index === i + 1);
+    return {
+      index: i + 1,
+      question: r.question,
+      score: pq?.score ?? null,
+      feedback: pq?.feedback ?? null,
+      timeNote: timeNote(kind, r.durationSeconds),
+      durationSeconds: r.durationSeconds ?? null,
+      timeLimitSeconds: timeLimitFor(kind),
+      mode: r.mode ?? 'TEXT',
+    };
+  });
 
   const updated = await prisma.interviewSimulation.update({
     where: { id },
@@ -225,6 +243,7 @@ export async function submitInterview(userId: string, id: string, input: SubmitI
       strengths: evaluation.strengths,
       improvements: evaluation.improvements,
       feedback: evaluation.feedback,
+      questionFeedback,
     },
   });
 
@@ -232,15 +251,34 @@ export async function submitInterview(userId: string, id: string, input: SubmitI
   return updated;
 }
 
+interface QuestionEvaluation {
+  index: number;
+  score: number | null;
+  feedback: string;
+}
+
 interface Evaluation {
   contentScore: number;
   strengths: string[];
   improvements: string[];
   feedback: string;
+  perQuestion: QuestionEvaluation[];
 }
 
 async function evaluateResponses(input: SubmitInterviewInput, prof: string, kind: TrackKind): Promise<Evaluation> {
-  const transcript = input.responses.map((r, i) => `P${i + 1}: ${r.question}\nR${i + 1}: ${r.answer}`).join('\n\n');
+  const limit = timeLimitFor(kind);
+  const transcript = input.responses
+    .map((r, i) => {
+      const meta = [
+        r.mode === 'VOICE' ? 'respondida en voz (transcrita)' : 'respondida por escrito',
+        typeof r.durationSeconds === 'number' ? `${r.durationSeconds} s de ${limit} s de referencia` : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      return `P${i + 1}: ${r.question}
+R${i + 1} (${meta}): ${r.answer}`;
+    })
+    .join('\n\n');
 
   const raw = await llmComplete(
     [
@@ -248,16 +286,23 @@ async function evaluateResponses(input: SubmitInterviewInput, prof: string, kind
         role: 'system',
         content:
           `Eres un coach de entrevistas peruano especializado en el rubro de ${prof}. ${evaluationRubric(kind, prof)} ` +
-          'Devuelve SOLO un objeto JSON: {"contentScore": number(0-100), "strengths": string[], "improvements": string[], "feedback": string}. ' +
+          'Evalúa el CONTENIDO, la pertinencia respecto a cada pregunta y la estructura de cada respuesta. ' +
+          'Las respuestas en voz son transcripciones automáticas: no juzgues la puntuación ni errores típicos de transcripción, y NO opines sobre pronunciación, entonación o volumen (no se midieron). ' +
+          'Devuelve SOLO un objeto JSON: {"contentScore": number(0-100), "strengths": string[], "improvements": string[], "feedback": string, ' +
+          '"perQuestion": [{"index": number, "score": number(0-100), "feedback": string}]}. ' +
+          '"perQuestion" lleva un elemento por cada respuesta (index empieza en 1) con un comentario de 1-2 frases específico a ESA pregunta y a lo que el usuario respondió (cita o menciona lo que dijo). ' +
           'En español, concreto y constructivo; las mejoras deben ser accionables.',
       },
-      { role: 'user', content: `Evalúa esta simulación de un(a) ${prof}:\n\n${transcript}` },
+      { role: 'user', content: `Evalúa esta simulación de un(a) ${prof}:
+
+${transcript}` },
     ],
-    { temperature: 0.5, maxTokens: 650 },
+    { temperature: 0.4, maxTokens: 1800 },
   );
 
   const parsed = tryParseEvaluation(raw);
   if (parsed) return parsed;
+  if (raw) logger.warn({ length: raw.length, start: raw.slice(0, 120) }, 'Evaluación de entrevista no parseable; se usa el respaldo');
 
   const avgLen = input.responses.reduce((a, r) => a + r.answer.trim().length, 0) / input.responses.length;
   const contentScore = Math.max(40, Math.min(90, Math.round(40 + avgLen / 6)));
@@ -271,7 +316,15 @@ async function evaluateResponses(input: SubmitInterviewInput, prof: string, kind
       `Incluye ejemplos concretos y resultados medibles de tu experiencia como ${prof}.`,
     ],
     feedback:
-      'Buen esfuerzo. Para destacar, desarrolla más tus respuestas con ejemplos específicos de tu rubro y cuida tu comunicación no verbal (contacto visual y postura).',
+      'Buen esfuerzo. Para destacar, desarrolla más tus respuestas con ejemplos específicos de tu rubro.',
+    perQuestion: input.responses.map((r, i) => ({
+      index: i + 1,
+      score: null,
+      feedback:
+        r.answer.trim().length < 120
+          ? 'Tu respuesta es breve: agrega un ejemplo concreto y el resultado que obtuviste.'
+          : 'Revisa que tu respuesta termine con un resultado concreto y, si puedes, medible.',
+    })),
   };
 }
 
@@ -302,15 +355,25 @@ function tryParseStringArray(raw: string | null): string[] | null {
 }
 
 function tryParseEvaluation(raw: string | null): Evaluation | null {
-  if (!raw) return null;
+  const v = extractJsonObject(raw) as Record<string, any> | null;
+  if (!v) return null;
   try {
-    const v = JSON.parse(stripFences(raw));
     if (typeof v.contentScore !== 'number') return null;
+    const perQuestion: QuestionEvaluation[] = Array.isArray(v.perQuestion)
+      ? v.perQuestion
+          .filter((q: { index?: unknown }) => typeof q?.index === 'number')
+          .map((q: { index: number; score?: unknown; feedback?: unknown }) => ({
+            index: Math.round(q.index),
+            score: typeof q.score === 'number' ? Math.max(0, Math.min(100, Math.round(q.score))) : null,
+            feedback: toPlainText(String(q.feedback ?? '')),
+          }))
+      : [];
     return {
       contentScore: Math.max(0, Math.min(100, Math.round(v.contentScore))),
       strengths: Array.isArray(v.strengths) ? v.strengths.map((s: unknown) => toPlainText(String(s))) : [],
       improvements: Array.isArray(v.improvements) ? v.improvements.map((s: unknown) => toPlainText(String(s))) : [],
       feedback: typeof v.feedback === 'string' ? toPlainText(v.feedback) : '',
+      perQuestion,
     };
   } catch {
     return null;

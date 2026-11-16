@@ -13,7 +13,7 @@ interface RecoContext {
 
 const PRIORITY_BY_BAND = { BAJA: 1, MEDIA: 2, ALTA: 3 } as const;
 
-function scoreForCategory(result: AnalysisResult, category: RecommendationCategory): number {
+function scoreForCategory(result: AnalysisResult, category: RecommendationCategory): number | null {
   switch (CATEGORY_SCORE_KEY[category]) {
     case 'face':
       return result.faceScore;
@@ -26,6 +26,33 @@ function scoreForCategory(result: AnalysisResult, category: RecommendationCatego
     case 'overall':
       return result.overallScore;
   }
+}
+
+const FRAME_LABELS: Record<string, string> = {
+  PRIMER_PLANO: 'un primer plano (rostro y, como mucho, hombros)',
+  MEDIO_CUERPO: 'una foto de medio cuerpo (de la cintura hacia arriba)',
+  CUERPO_COMPLETO: 'una foto de cuerpo completo',
+};
+
+const ASSESSMENT_KEY: Partial<Record<RecommendationCategory, string>> = {
+  EXPRESSION: 'face',
+  CLOTHING: 'clothing',
+  POSTURE: 'posture',
+  CONTEXT: 'context',
+};
+
+/** Evidencia visible que sustenta el puntaje de una categoría (calculada on-device). */
+function evidenceFor(result: AnalysisResult, category: RecommendationCategory): string[] {
+  const key = ASSESSMENT_KEY[category];
+  const assessment = (result.assessment ?? null) as {
+    evaluated?: { category: string; evidence?: string[] }[];
+    formalityEvidence?: string[];
+  } | null;
+  if (!key || !assessment?.evaluated) return [];
+  const item = assessment.evaluated.find((e) => e.category === key);
+  const ev = [...(item?.evidence ?? [])];
+  if (category === 'CLOTHING') ev.push(...(assessment.formalityEvidence ?? []));
+  return ev.slice(0, 5);
 }
 
 /**
@@ -56,11 +83,17 @@ export async function generateForAnalysis(
 
   for (const category of categories) {
     const score = scoreForCategory(result, category);
+    // Solo se recomienda sobre lo que se vio en la foto: si la categoría no se
+    // evaluó (p. ej. postura en un primer plano), la app explica por qué no se evaluó.
+    if (score === null) continue;
     const b = band(score);
     const baseAdvice = RECOMMENDATION_CATALOG[category][b];
 
     const relevant = category === 'EXPRESSION' || category === 'CLOTHING' ? detected : [];
-    const advice = await enrichAdvice(category, score, ctx, baseAdvice, relevant);
+    const advice = await enrichAdvice(category, score, ctx, baseAdvice, relevant, {
+      frame: result.frameType ? FRAME_LABELS[result.frameType] ?? null : null,
+      evidence: evidenceFor(result, category),
+    });
 
     rows.push({
       analysisResultId: result.id,
@@ -74,30 +107,51 @@ export async function generateForAnalysis(
   await prisma.recommendation.createMany({ data: rows });
 }
 
+const CATEGORY_LABELS: Record<RecommendationCategory, string> = {
+  EXPRESSION: 'rostro y expresión',
+  CLOTHING: 'vestimenta',
+  POSTURE: 'postura',
+  CONTEXT: 'entorno e iluminación',
+  SOFT_SKILLS: 'imagen profesional en conjunto',
+};
+
+const BAND_GUIDANCE: Record<'BAJA' | 'MEDIA' | 'ALTA', string> = {
+  BAJA: 'El puntaje es BAJO ("Por mejorar"): no lo felicites; explica qué corregir primero.',
+  MEDIA: 'El puntaje es MEDIO ("Aceptable"): reconoce lo que está bien y da una mejora concreta.',
+  ALTA: 'El puntaje es ALTO ("Profesional"): refuerza lo que hace bien; no inventes problemas.',
+};
+
 async function enrichAdvice(
   category: RecommendationCategory,
   score: number,
   ctx: RecoContext,
   fallback: string,
   detected: string[] = [],
+  photo: { frame: string | null; evidence: string[] } = { frame: null, evidence: [] },
 ): Promise<string> {
   const prof = professionLabel(ctx.profession);
   const issues = detected.length
     ? ` En su foto se detectó que ${detected.join(' y ')}: menciónalo y dile que se lo quite para la entrevista.`
+    : '';
+  const frame = photo.frame
+    ? ` La foto es ${photo.frame}: habla SOLO de lo que se ve en ella; no menciones prendas, calzado ni postura que no aparecen.`
+    : '';
+  const evidence = photo.evidence.length
+    ? ` Lo observado en la foto que explica el puntaje: ${photo.evidence.join('; ')}.`
     : '';
   const llm = await llmComplete(
     [
       {
         role: 'system',
         content:
-          'Eres un asesor de imagen profesional y empleabilidad para jóvenes en Lima, Perú. Das consejos breves (máximo 2 frases), concretos, motivadores y en español, en texto plano sin Markdown.',
+          'Eres un asesor de imagen profesional y empleabilidad para jóvenes en Lima, Perú. Das consejos breves (máximo 2 frases), concretos, motivadores y en español, en texto plano sin Markdown. Tu consejo debe ser coherente con el puntaje recibido y basarse solo en lo observado.',
       },
       {
         role: 'user',
-        content: `El usuario es ${prof} y obtuvo ${score}/100 en la categoría ${category}. Dale un consejo breve y accionable, adaptado a su rubro, para mejorar su imagen profesional en una entrevista.${issues}`,
+        content: `El usuario es ${prof} y obtuvo ${score}/100 en ${CATEGORY_LABELS[category]}. ${BAND_GUIDANCE[band(score)]}${frame}${evidence} Dale un consejo breve y accionable, adaptado a su rubro, para mejorar su imagen profesional en una entrevista.${issues}`,
       },
     ],
-    { temperature: 0.7, maxTokens: 160 },
+    { temperature: 0.6, maxTokens: 160 },
   );
   return llm ? toPlainText(llm) : fallback;
 }

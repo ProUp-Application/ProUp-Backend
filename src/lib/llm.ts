@@ -24,6 +24,24 @@ export function toPlainText(text: string): string {
     .trim();
 }
 
+/**
+ * Extrae el primer objeto JSON de una respuesta del LLM, aunque venga con bloques
+ * de código o texto alrededor. Devuelve null si no hay un JSON válido.
+ */
+export function extractJsonObject(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  const clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const v = JSON.parse(clean.slice(start, end + 1));
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** ¿Hay un proveedor de LLM configurado con su API key? */
 export function isLlmEnabled(): boolean {
   if (env.LLM_PROVIDER === 'groq') return !!env.GROQ_API_KEY;

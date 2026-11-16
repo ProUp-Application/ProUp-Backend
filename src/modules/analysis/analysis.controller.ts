@@ -22,3 +22,8 @@ export const getAnalysisHandler = asyncHandler(async (req: Request, res: Respons
   const analysis = await analysisService.getAnalysis(uid(req), req.params.id);
   res.json({ analysis });
 });
+
+export const statsHandler = asyncHandler(async (req: Request, res: Response) => {
+  const stats = await analysisService.getStats(uid(req));
+  res.json({ stats });
+});
