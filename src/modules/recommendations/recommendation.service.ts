@@ -30,7 +30,7 @@ function scoreForCategory(result: AnalysisResult, category: RecommendationCatego
 
 const FRAME_LABELS: Record<string, string> = {
   PRIMER_PLANO: 'un primer plano (rostro y, como mucho, hombros)',
-  MEDIO_CUERPO: 'una foto de medio cuerpo (de la cintura hacia arriba)',
+  MEDIO_CUERPO: 'una foto de medio cuerpo (torso y hombros, sin piernas)',
   CUERPO_COMPLETO: 'una foto de cuerpo completo',
 };
 
@@ -48,7 +48,17 @@ function evidenceFor(result: AnalysisResult, category: RecommendationCategory): 
     evaluated?: { category: string; evidence?: string[] }[];
     formalityEvidence?: string[];
   } | null;
-  if (!key || !assessment?.evaluated) return [];
+  if (!assessment?.evaluated) return [];
+  // Imagen en conjunto: resumen de TODO lo observado, para que el consejo general
+  // no contradiga una categoría (p. ej. "estilo pulido" con ropa casual)
+  if (category === 'SOFT_SKILLS') {
+    const names: Record<string, string> = { face: 'Rostro', clothing: 'Vestimenta', posture: 'Postura', context: 'Entorno' };
+    return [
+      ...assessment.evaluated.map((e) => `${names[e.category] ?? e.category}: ${(e.evidence ?? []).slice(0, 3).join(', ')}`),
+      ...(assessment.formalityEvidence ?? []).slice(0, 1),
+    ];
+  }
+  if (!key) return [];
   const item = assessment.evaluated.find((e) => e.category === key);
   const ev = [...(item?.evidence ?? [])];
   if (category === 'CLOTHING') ev.push(...(assessment.formalityEvidence ?? []));
@@ -76,10 +86,15 @@ export async function generateForAnalysis(
 
   // Problemas detectados on-device: el consejo debe nombrarlos explícitamente
   const metrics = (result.rawMetrics ?? {}) as Record<string, unknown>;
-  const detected = [
-    metrics.sunglasses === true ? 'lleva lentes de sol (no se le ven los ojos)' : null,
-    metrics.hat === true ? 'lleva gorra o sombrero' : null,
-  ].filter((d): d is string => d !== null);
+  const detected: { text: string; categories: RecommendationCategory[] }[] = [
+    metrics.sunglasses === true
+      ? { text: 'lleva lentes de sol (no se le ven los ojos)', categories: ['EXPRESSION', 'CLOTHING'] }
+      : null,
+    metrics.hat === true ? { text: 'lleva gorra o sombrero', categories: ['EXPRESSION', 'CLOTHING'] } : null,
+    metrics.handGesture === true
+      ? { text: 'aparece haciendo un gesto con la mano junto al rostro', categories: ['EXPRESSION'] }
+      : null,
+  ].filter((d): d is { text: string; categories: RecommendationCategory[] } => d !== null);
 
   for (const category of categories) {
     const score = scoreForCategory(result, category);
@@ -89,7 +104,7 @@ export async function generateForAnalysis(
     const b = band(score);
     const baseAdvice = RECOMMENDATION_CATALOG[category][b];
 
-    const relevant = category === 'EXPRESSION' || category === 'CLOTHING' ? detected : [];
+    const relevant = detected.filter((d) => d.categories.includes(category)).map((d) => d.text);
     const advice = await enrichAdvice(category, score, ctx, baseAdvice, relevant, {
       frame: result.frameType ? FRAME_LABELS[result.frameType] ?? null : null,
       evidence: evidenceFor(result, category),
@@ -121,6 +136,12 @@ const BAND_GUIDANCE: Record<'BAJA' | 'MEDIA' | 'ALTA', string> = {
   ALTA: 'El puntaje es ALTO ("Profesional"): refuerza lo que hace bien; no inventes problemas.',
 };
 
+function scopeRule(category: RecommendationCategory): string {
+  return category === 'SOFT_SKILLS'
+    ? 'Da una valoración de conjunto coherente con TODO lo observado (si la vestimenta es casual, no la llames pulida ni formal).'
+    : `Habla SOLO de ${CATEGORY_LABELS[category]}; no aconsejes sobre otras categorías (sonrisa, postura, ropa o fondo) salvo que sean de esta.`;
+}
+
 async function enrichAdvice(
   category: RecommendationCategory,
   score: number,
@@ -131,7 +152,7 @@ async function enrichAdvice(
 ): Promise<string> {
   const prof = professionLabel(ctx.profession);
   const issues = detected.length
-    ? ` En su foto se detectó que ${detected.join(' y ')}: menciónalo y dile que se lo quite para la entrevista.`
+    ? ` En su foto se detectó que ${detected.join(' y ')}: menciónalo y dile cómo corregirlo para la foto de su postulación.`
     : '';
   const frame = photo.frame
     ? ` La foto es ${photo.frame}: habla SOLO de lo que se ve en ella; no menciones prendas, calzado ni postura que no aparecen.`
@@ -144,11 +165,11 @@ async function enrichAdvice(
       {
         role: 'system',
         content:
-          'Eres un asesor de imagen profesional y empleabilidad para jóvenes en Lima, Perú. Das consejos breves (máximo 2 frases), concretos, motivadores y en español, en texto plano sin Markdown. Tu consejo debe ser coherente con el puntaje recibido y basarse solo en lo observado.',
+          'Eres un asesor de imagen profesional y empleabilidad para jóvenes en Lima, Perú. Das consejos breves (máximo 2 frases), concretos, motivadores y en español, en texto plano sin Markdown. Tu consejo debe ser coherente con el puntaje recibido y basarse solo en lo observado. No afirmes ni corrijas nada que lo observado no mencione (por ejemplo, no pidas cambiar el fondo, la ropa o una prenda si no se indicó un problema con ellos), y no pidas añadir algo que lo observado ya muestra (si dice "Sonrisa visible", no pidas sonreír). Si todo lo observado está bien, refuérzalo y da un detalle fino opcional.',
       },
       {
         role: 'user',
-        content: `El usuario es ${prof} y obtuvo ${score}/100 en ${CATEGORY_LABELS[category]}. ${BAND_GUIDANCE[band(score)]}${frame}${evidence} Dale un consejo breve y accionable, adaptado a su rubro, para mejorar su imagen profesional en una entrevista.${issues}`,
+        content: `El usuario es ${prof} y obtuvo ${score}/100 en ${CATEGORY_LABELS[category]}. ${BAND_GUIDANCE[band(score)]}${frame}${evidence} ${scopeRule(category)} Dale un consejo breve y accionable, adaptado a su rubro, para mejorar su imagen profesional en una entrevista.${issues}`,
       },
     ],
     { temperature: 0.6, maxTokens: 160 },

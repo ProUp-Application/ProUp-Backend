@@ -57,11 +57,13 @@ export function computeOverall(scores: PartialScores, sector?: string | null): n
  * compensar un rostro bajo con un buen entorno; estos topes lo impiden:
  * - lentes de sol / ojos no visibles → nunca más que "Por mejorar" (≤ 45)
  * - gorra / sombrero                 → nunca "Profesional" (≤ 65)
+ * - mano haciendo un gesto (selfie)   → nunca "Profesional" (≤ 74)
  */
 export function applyIssueCaps(overall: number, rawMetrics?: Record<string, unknown> | null): number {
   let capped = overall;
   if (rawMetrics?.sunglasses === true) capped = Math.min(capped, 45);
   if (rawMetrics?.hat === true) capped = Math.min(capped, 65);
+  if (rawMetrics?.handGesture === true) capped = Math.min(capped, 74);
   return capped;
 }
 

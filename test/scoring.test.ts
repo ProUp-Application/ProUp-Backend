@@ -24,5 +24,6 @@ test('medio cuerpo sin postura evaluable renormaliza con vestimenta', () => {
 test('los topes por lentes de sol y gorra se mantienen', () => {
   assert.equal(applyIssueCaps(80, { sunglasses: true }), 45);
   assert.equal(applyIssueCaps(80, { hat: true }), 65);
+  assert.equal(applyIssueCaps(80, { handGesture: true }), 74);
   assert.equal(applyIssueCaps(80, {}), 80);
 });
