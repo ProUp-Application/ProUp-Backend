@@ -107,6 +107,28 @@ export function enforceIntegrity(original: string, cv: StructuredCv): { cv: Stru
     removed.push({ field: 'perfil', value: profile, reason: 'El perfil incluía una cifra que no está en tu CV original.' });
     profile = undefined;
   }
+  // Afirmaciones de grado, seniority o experiencia que el usuario no escribió
+  // (p. ej. "recién graduada" cuando el CV solo dice la carrera y los años)
+  if (profile) {
+    const kept: string[] = [];
+    for (const sentence of profile.split(/(?<=[.!?])\s+/)) {
+      const claim = unverifiedClaim(original, sentence);
+      if (claim) {
+        removed.push({ field: 'perfil', value: sentence, reason: `Afirma "${claim}", que no aparece en tu CV original.` });
+      } else {
+        kept.push(sentence);
+      }
+    }
+    profile = kept.join(' ').trim() || undefined;
+  }
+  let headline = cv.headline;
+  if (headline) {
+    const claim = unverifiedClaim(original, headline);
+    if (claim) {
+      removed.push({ field: 'titular', value: headline, reason: `Afirma "${claim}", que no aparece en tu CV original.` });
+      headline = undefined;
+    }
+  }
 
   const other = cv.other
     .map((o) => ({
@@ -121,7 +143,7 @@ export function enforceIntegrity(original: string, cv: StructuredCv): { cv: Stru
 
   const result: StructuredCv = {
     fullName: cv.fullName,
-    headline: cv.headline,
+    headline,
     contact: {
       email: contact.email,
       phone: contact.phone,
@@ -139,6 +161,32 @@ export function enforceIntegrity(original: string, cv: StructuredCv): { cv: Stru
   };
 
   return { cv: result, report: { removed, possiblyMissing: missingFromImproved(original, result) } };
+}
+
+/**
+ * Afirmaciones que cambian el perfil profesional del usuario y que la IA tiende a
+ * suponer: grado académico, colegiatura, seniority o años de experiencia. Se aceptan
+ * solo si una palabra de la misma familia aparece en el CV original.
+ */
+const CLAIMS: { label: string; re: RegExp }[] = [
+  { label: 'graduado/a', re: /\b(recien\s+)?(graduad[oa]s?|egresad[oa]s?)\b/ },
+  { label: 'titulado/a', re: /\btitulad[oa]s?\b/ },
+  { label: 'bachiller', re: /\bbachiller\b/ },
+  { label: 'colegiado/a', re: /\bcolegiad[oa]s?\b/ },
+  { label: 'magíster', re: /\b(magister|maestria|mba)\b/ },
+  { label: 'senior', re: /\b(senior|semi\s*senior)\b/ },
+  { label: 'líder de equipo', re: /\b(lider|jefe|jefa|gerente|coordinador[a]?)\b/ },
+  { label: 'años de experiencia', re: /\banos?\s+de\s+experiencia\b/ },
+];
+
+export function unverifiedClaim(original: string, text: string): string | null {
+  const n = normalize(text);
+  const o = normalize(original);
+  for (const c of CLAIMS) {
+    const m = n.match(c.re);
+    if (m && !c.re.test(o)) return m[0];
+  }
+  return null;
 }
 
 /** Datos del original que no quedaron en la versión mejorada (ASE-07). */

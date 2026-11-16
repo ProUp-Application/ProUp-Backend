@@ -17,6 +17,35 @@ export interface Transcription {
   durationSeconds: number | null;
 }
 
+/**
+ * Frases que Whisper "inventa" cuando el audio es silencio o ruido (vienen de los
+ * subtítulos con los que se entrenó). Si la transcripción es SOLO eso, no hubo voz.
+ */
+const HALLUCINATIONS = [
+  'gracias',
+  'muchas gracias',
+  'gracias por ver',
+  'gracias por ver el video',
+  'suscribete',
+  'subtitulos realizados por la comunidad de amara.org',
+  'subtitulado por la comunidad de amara.org',
+  'musica',
+  'aplausos',
+  'risas',
+];
+
+export function isLikelyHallucination(text: string): boolean {
+  const parts = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[¡!¿?\[\]()♪]/g, '')
+    .split(/\.(?=\s|$)|\n/) // fin de frase (no el punto de "amara.org")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length > 0 && parts.every((p) => HALLUCINATIONS.includes(p));
+}
+
 export function isSpeechEnabled(): boolean {
   return !!env.GROQ_API_KEY;
 }
@@ -67,7 +96,7 @@ export async function transcribeAudio(audio: {
     }
     const data = (await res.json()) as { text?: string; duration?: number };
     const text = (data.text ?? '').trim();
-    if (!text) {
+    if (!text || isLikelyHallucination(text)) {
       throw AppError.badRequest(
         'No se escuchó ninguna respuesta en la grabación. Revisa el micrófono y vuelve a grabar.',
         'EMPTY_TRANSCRIPTION',

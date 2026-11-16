@@ -86,14 +86,13 @@ export async function extractCvDocument(file: UploadedFile): Promise<CvDocument>
   } else if (name.endsWith('.docx') || file.mimetype.includes('officedocument.wordprocessingml')) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mammoth = require('mammoth');
-    const [raw, html] = await Promise.all([
-      mammoth.extractRawText({ buffer: file.buffer }),
-      mammoth.convertToHtml({ buffer: file.buffer }),
-    ]);
-    text = String(raw?.value ?? '');
+    const html = await mammoth.convertToHtml({ buffer: file.buffer });
     const markup = String(html?.value ?? '');
     hasTables = /<table/i.test(markup);
     hasImages = /<img/i.test(markup);
+    // Texto desde el HTML: extractRawText pierde los saltos de línea dentro de una celda
+    // o un párrafo (quedaba "correo.com987 654 321"); aquí se respetan.
+    text = htmlToText(markup);
   } else if (name.endsWith('.txt') || file.mimetype.startsWith('text/')) {
     text = file.buffer.toString('utf8');
   } else {
@@ -115,4 +114,20 @@ export async function extractCvDocument(file: UploadedFile): Promise<CvDocument>
     );
   }
   return { text: clean.slice(0, MAX_DOC_CHARS), hasTables, hasImages };
+}
+
+/** Convierte el HTML de mammoth en texto conservando párrafos, saltos y celdas. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|h[1-6]|li|tr|table|ul|ol)>/gi, '\n')
+    .replace(/<\/t[dh]>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '- ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
 }

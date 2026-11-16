@@ -108,3 +108,27 @@ test('avisa si un año del original no aparece en la versión mejorada', () => {
   const { report } = enforceIntegrity(SAMPLE_CV, { ...base, certifications: [] });
   assert.ok(report.possiblyMissing.some((m) => m.value === '2023'));
 });
+
+test('la extracción de Word conserva los saltos de línea de una celda', async () => {
+  const { htmlToText } = await import('../src/modules/chat/attachment.service');
+  const text = htmlToText('<table><tr><td><p>ana@correo.com<br />987 654 321</p></td><td><p>Lima</p></td></tr></table><h1>EXPERIENCIA</h1><ul><li>Logro &amp; resultado</li></ul>');
+  assert.match(text, /ana@correo\.com\n987 654 321/);
+  assert.match(text, /EXPERIENCIA\n- Logro & resultado/);
+});
+
+test('descarta del perfil y del titular afirmaciones que el CV no respalda (caso real: "recién graduada" en un CV que no lo decía)', () => {
+  const { cv, report } = enforceIntegrity(SAMPLE_CV, {
+    ...base,
+    headline: 'Ingeniera Senior de Software',
+    profile: 'Ingeniera de Software titulada y proactiva. Tiene experiencia en desarrollo backend con Node.js.',
+  });
+  assert.equal(cv.headline, undefined);
+  assert.equal(cv.profile, 'Tiene experiencia en desarrollo backend con Node.js.');
+  assert.ok(report.removed.some((r) => /titulada/.test(r.reason)));
+  assert.ok(report.removed.some((r) => /senior/.test(r.reason)));
+});
+
+test('conserva la afirmación si el CV original la respalda', () => {
+  const { cv } = enforceIntegrity(SAMPLE_CV, { ...base, headline: 'Bachiller en Ingeniería de Software' });
+  assert.equal(cv.headline, 'Bachiller en Ingeniería de Software');
+});

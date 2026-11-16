@@ -18,7 +18,8 @@ const ISSUE_TYPES: CvIssue['type'][] = ['ortografia', 'redaccion', 'claridad', '
 const NO_INVENT_RULE =
   'REGLA CRÍTICA: no inventes NADA. No agregues experiencias, empresas, cargos, estudios, instituciones, certificaciones, ' +
   'habilidades, idiomas, logros, cifras ni fechas que el usuario no haya escrito. Si falta información, déjalo vacío y ' +
-  'sugiérele qué agregar en "suggestions". Puedes reescribir con mejor redacción y verbos de acción lo que SÍ está.';
+  'sugiérele qué agregar en "suggestions". Tampoco afirmes grado académico (egresado, titulado, bachiller), seniority, cargos de liderazgo ni años de experiencia si no están escritos. ' +
+  'Puedes reescribir con mejor redacción y verbos de acción lo que SÍ está.';
 
 async function profileFor(userId: string) {
   const profile = await prisma.professionalProfile.findUnique({ where: { userId } });
@@ -27,6 +28,23 @@ async function profileFor(userId: string) {
 }
 
 const extractJson = extractJsonObject;
+
+/** Nombre en español de la sección (la IA a veces responde con las claves del JSON). */
+const SECTION_LABELS: Record<string, string> = {
+  fullname: 'Nombre',
+  headline: 'Titular',
+  contact: 'Contacto',
+  profile: 'Perfil',
+  experience: 'Experiencia',
+  education: 'Formación',
+  skills: 'Habilidades',
+  certifications: 'Certificaciones',
+  languages: 'Idiomas',
+  other: 'Otras secciones',
+};
+function sectionLabel(section: string): string {
+  return SECTION_LABELS[section.toLowerCase().replace(/[^a-z]/g, '')] ?? section;
+}
 
 const str = (v: unknown, max = 600) => (typeof v === 'string' ? toPlainText(v).slice(0, max).trim() : '');
 const strArr = (v: unknown, max = 600) =>
@@ -201,7 +219,7 @@ export async function improveCv(userId: string, input: { text: string; targetRol
 
   const changes = Array.isArray(parsed?.changes)
     ? (parsed!.changes as Record<string, unknown>[])
-        .map((c) => ({ section: str(c?.section, 80), description: str(c?.description, 300) }))
+        .map((c) => ({ section: sectionLabel(str(c?.section, 80)), description: str(c?.description, 300) }))
         .filter((c) => c.description)
         .slice(0, 12)
     : [];
