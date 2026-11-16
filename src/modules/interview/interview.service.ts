@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { extractJsonObject, llmComplete, toPlainText } from '../../lib/llm';
+import { extractJsonObject, llmComplete, llmJsonText, toPlainText } from '../../lib/llm';
 import { logger } from '../../lib/logger';
 import { AppError } from '../../utils/AppError';
 import { findProfession, professionLabel, Profession } from '../../shared/professions';
@@ -280,7 +280,7 @@ R${i + 1} (${meta}): ${r.answer}`;
     })
     .join('\n\n');
 
-  const raw = await llmComplete(
+  const raw = await llmJsonText(
     [
       {
         role: 'system',

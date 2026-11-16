@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { extractJsonObject, llmComplete, toPlainText } from '../../lib/llm';
+import { extractJsonObject, llmJsonText, toPlainText } from '../../lib/llm';
 import { AppError } from '../../utils/AppError';
 import { findProfession, professionLabel } from '../../shared/professions';
 import { ATS_DISCLAIMER, ATS_INFO, runAtsChecks, sectionsFound } from './cv.ats';
@@ -66,7 +66,7 @@ export async function analyzeCv(
     hasImages: input.hasImages,
   });
 
-  const raw = await llmComplete(
+  const raw = await llmJsonText(
     [
       {
         role: 'system',
@@ -184,7 +184,7 @@ export async function improveCv(userId: string, input: { text: string; targetRol
   const prof = await profileFor(userId);
   const target = input.targetRole ? ` Puesto al que postula: ${input.targetRole}.` : '';
 
-  const raw = await llmComplete(
+  const raw = await llmJsonText(
     [
       {
         role: 'system',
@@ -241,7 +241,7 @@ export async function improveCv(userId: string, input: { text: string; targetRol
 // ---------------------------------------------------------------------------
 
 export async function matchVacancy(userId: string, input: { cvText: string; vacancyText: string }) {
-  const raw = await llmComplete(
+  const raw = await llmJsonText(
     [
       {
         role: 'system',

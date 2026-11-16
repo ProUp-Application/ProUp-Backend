@@ -42,6 +42,13 @@ export function extractJsonObject(raw: string | null): Record<string, unknown> |
   }
 }
 
+export interface LlmOptions {
+  temperature?: number;
+  maxTokens?: number;
+  /** Fuerza una respuesta en JSON válido (modo JSON del proveedor). */
+  json?: boolean;
+}
+
 /** ¿Hay un proveedor de LLM configurado con su API key? */
 export function isLlmEnabled(): boolean {
   if (env.LLM_PROVIDER === 'groq') return !!env.GROQ_API_KEY;
@@ -56,7 +63,7 @@ export function isLlmEnabled(): boolean {
  */
 export async function llmComplete(
   messages: LlmMessage[],
-  opts: { temperature?: number; maxTokens?: number } = {},
+  opts: LlmOptions = {},
 ): Promise<string | null> {
   try {
     if (env.LLM_PROVIDER === 'groq' && env.GROQ_API_KEY) {
@@ -84,7 +91,7 @@ let groqWorkingModel: string | null = null;
 
 async function callGroq(
   messages: LlmMessage[],
-  opts: { temperature?: number; maxTokens?: number },
+  opts: LlmOptions,
 ): Promise<string | null> {
   const candidates = [...new Set([groqWorkingModel ?? env.GROQ_MODEL, env.GROQ_MODEL, ...GROQ_FALLBACK_MODELS])];
 
@@ -100,6 +107,7 @@ async function callGroq(
         messages,
         temperature: opts.temperature ?? 0.7,
         max_tokens: opts.maxTokens ?? 800,
+        ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
         // gpt-oss "razona" antes de responder y eso consume max_tokens: esfuerzo bajo
         ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
       }),
@@ -125,7 +133,7 @@ async function callGroq(
 
 async function callGemini(
   messages: LlmMessage[],
-  opts: { temperature?: number; maxTokens?: number },
+  opts: LlmOptions,
 ): Promise<string | null> {
   // Gemini no tiene "system": se combinan TODOS los mensajes de sistema (incluido
   // el recordatorio de perfil que va al final) en una sola systemInstruction.
@@ -148,6 +156,7 @@ async function callGemini(
       generationConfig: {
         temperature: opts.temperature ?? 0.7,
         maxOutputTokens: opts.maxTokens ?? 800,
+        ...(opts.json ? { responseMimeType: 'application/json' } : {}),
       },
     }),
   });
@@ -156,4 +165,31 @@ async function callGemini(
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? null;
+}
+
+/**
+ * Pide al LLM un objeto JSON (modo JSON) y lo parsea. Si la respuesta no se puede
+ * leer, reintenta una vez. Devuelve null si el LLM no está disponible o falla.
+ */
+export async function llmJson(
+  messages: LlmMessage[],
+  opts: Omit<LlmOptions, 'json'> = {},
+): Promise<Record<string, unknown> | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = await llmComplete(messages, { ...opts, json: true });
+    if (raw === null) return null;
+    const parsed = extractJsonObject(raw);
+    if (parsed) return parsed;
+    logger.warn({ attempt, start: raw.slice(0, 120) }, 'Respuesta JSON del LLM no válida');
+  }
+  return null;
+}
+
+/** Igual que llmJson, pero devuelve el JSON como texto (para los parseadores existentes). */
+export async function llmJsonText(
+  messages: LlmMessage[],
+  opts: Omit<LlmOptions, 'json'> = {},
+): Promise<string | null> {
+  const obj = await llmJson(messages, opts);
+  return obj ? JSON.stringify(obj) : null;
 }
