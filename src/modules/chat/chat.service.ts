@@ -17,7 +17,7 @@ const FORMALITY_LABELS: Record<string, string> = {
   FORMAL: 'formal',
 };
 
-interface LatestAnalysis {
+export interface LatestAnalysis {
   overall: number;
   face: number;
   clothing: number | null; // null = no se veía en la foto (no evaluado)
@@ -28,13 +28,13 @@ interface LatestAnalysis {
   topAdvice: string | null;
 }
 
-interface LastInterview {
+export interface LastInterview {
   track: string | null;
   overall: number | null;
   improvements: string[];
 }
 
-interface AdvisorContext {
+export interface AdvisorContext {
   firstName: string | null;
   prof: string;
   level: string | null;
@@ -136,7 +136,7 @@ function systemPrompt(ctx: AdvisorContext): string {
 }
 
 /** Fallback inteligente por palabras clave (cuando el LLM no está disponible). */
-function smartFallback(message: string, ctx: AdvisorContext): string {
+export function smartFallback(message: string, ctx: AdvisorContext): string {
   const m = message.toLowerCase();
   const has = (...k: string[]) => k.some((x) => m.includes(x));
   const prof = ctx.prof;

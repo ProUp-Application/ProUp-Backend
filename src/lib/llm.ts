@@ -1,5 +1,6 @@
 import { env } from '../config/env';
 import { logger } from './logger';
+import { isLlmFailureSimulated } from './qaContext';
 
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant';
@@ -66,6 +67,7 @@ export async function llmComplete(
   opts: LlmOptions = {},
 ): Promise<string | null> {
   try {
+    if (isLlmFailureSimulated()) throw new Error('Caída del LLM simulada (QA)');
     if (env.LLM_PROVIDER === 'groq' && env.GROQ_API_KEY) {
       return await callGroq(messages, opts);
     }

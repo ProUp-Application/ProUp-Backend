@@ -16,7 +16,8 @@
     "db:down": "docker compose down",
     "db:seed": "tsx prisma/seed.ts",
     "test": "tsx --test test/*.test.ts",
-    "db:seed-demo": "tsx prisma/seed-demo.ts"
+    "db:seed-demo": "tsx prisma/seed-demo.ts",
+    "qa:reset-account": "tsx scripts/qa-reset-account.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
