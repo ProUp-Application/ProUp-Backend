@@ -80,3 +80,9 @@ prisma/
 | `npm run prisma:migrate` | Crea/aplica migraciones |
 | `npm run prisma:studio` | Explorador visual de la BD |
 | `npm run db:up` / `db:down` | Levanta/baja PostgreSQL (Docker) |
+| `npm run qa:reset-account -- <correo> [--dry-run] [--force]` | Solo QA: borra una cuenta de prueba y todos sus datos para repetir casos como CP001 |
+
+## Apoyo para QA
+
+- **Repetir el registro (CP001).** `npm run qa:reset-account -- prueba.cp@correo.com` muestra lo que tiene la cuenta y la borra con sus datos (en cascada). Con `--dry-run` solo lo muestra. Sin `--force` solo acepta correos que parecen de prueba (`@correo.com`, `@example.com`, o con "prueba", "test", "qa" o "demo"). Usa la base de `DATABASE_URL`.
+- **Simular la caída del LLM (CP036).** Arranca el backend con `QA_LLM_FAILURE_SIMULATION=true` y envía la cabecera `x-simulate-llm-failure: 1`: en esa petición el LLM falla y el asesor responde con su respaldo por palabras clave. Sin la variable (por defecto, y en producción) la cabecera se ignora.

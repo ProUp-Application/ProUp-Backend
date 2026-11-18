@@ -17,24 +17,24 @@ const FORMALITY_LABELS: Record<string, string> = {
   FORMAL: 'formal',
 };
 
-interface LatestAnalysis {
+export interface LatestAnalysis {
   overall: number;
   face: number;
-  clothing: number;
-  posture: number;
+  clothing: number | null; // null = no se veía en la foto (no evaluado)
+  posture: number | null;
   context: number;
   formality: string | null;
   createdAt: Date;
   topAdvice: string | null;
 }
 
-interface LastInterview {
+export interface LastInterview {
   track: string | null;
   overall: number | null;
   improvements: string[];
 }
 
-interface AdvisorContext {
+export interface AdvisorContext {
   firstName: string | null;
   prof: string;
   level: string | null;
@@ -90,10 +90,11 @@ async function buildAdvisorContext(userId: string): Promise<AdvisorContext> {
 
 function describeAnalysis(a: LatestAnalysis): string {
   const formality = a.formality ? ` (formalidad ${FORMALITY_LABELS[a.formality] ?? a.formality})` : '';
+  const clothing = a.clothing === null ? 'vestimenta no evaluada (no se veía en la foto)' : `vestimenta ${a.clothing}${formality}`;
+  const posture = a.posture === null ? 'postura no evaluada (no se veía en la foto)' : `postura ${a.posture}`;
   return (
     `puntaje global ${a.overall}/100 (${bandLabel(a.overall)}), ` +
-    `rostro/expresión ${a.face}, vestimenta ${a.clothing}${formality}, ` +
-    `postura ${a.posture}, entorno/iluminación ${a.context}`
+    `rostro/expresión ${a.face}, ${clothing}, ${posture}, entorno/iluminación ${a.context}`
   );
 }
 
@@ -135,7 +136,7 @@ function systemPrompt(ctx: AdvisorContext): string {
 }
 
 /** Fallback inteligente por palabras clave (cuando el LLM no está disponible). */
-function smartFallback(message: string, ctx: AdvisorContext): string {
+export function smartFallback(message: string, ctx: AdvisorContext): string {
   const m = message.toLowerCase();
   const has = (...k: string[]) => k.some((x) => m.includes(x));
   const prof = ctx.prof;
@@ -145,12 +146,12 @@ function smartFallback(message: string, ctx: AdvisorContext): string {
       return 'Aún no tienes un análisis de imagen registrado. Ve a la pestaña "Escanear", toma una selfie o foto de cuerpo entero y te daré recomendaciones basadas en tus resultados.';
     }
     const a = ctx.analysis;
-    const cats: [string, number][] = [
+    const cats = ([
       ['rostro y expresión', a.face],
       ['vestimenta', a.clothing],
       ['postura', a.posture],
       ['entorno e iluminación', a.context],
-    ];
+    ] as [string, number | null][]).filter((c): c is [string, number] => c[1] !== null);
     cats.sort((x, y) => x[1] - y[1]);
     return `En tu último análisis obtuviste ${describeAnalysis(a)}. Tu punto más débil es ${cats[0][0]} (${cats[0][1]}/100): te sugiero enfocarte primero ahí. ${a.topAdvice ?? ''}`.trim();
   }

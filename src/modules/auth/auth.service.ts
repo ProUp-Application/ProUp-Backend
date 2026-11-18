@@ -3,7 +3,7 @@ import { User } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../utils/AppError';
 import { issueTokens, verifyRefreshToken, signAccessToken } from '../../utils/jwt';
-import { LoginInput, RegisterInput } from './auth.schemas';
+import { CONSENT_VERSION, LoginInput, RegisterInput } from './auth.schemas';
 
 const SALT_ROUNDS = 10;
 
@@ -39,7 +39,7 @@ export async function register(input: RegisterInput) {
     }
 
     await tx.consent.create({
-      data: { userId: created.id, type: 'DATA_PROCESSING', granted: true, version: '1.0' },
+      data: { userId: created.id, type: 'DATA_PROCESSING', granted: true, version: CONSENT_VERSION },
     });
 
     await tx.auditEvent.create({

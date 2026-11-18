@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { AppError } from '../../utils/AppError';
 import * as interviewService from './interview.service';
+import { transcribeAudio } from '../../lib/speech';
 
 const uid = (req: Request) => {
   if (!req.userId) throw AppError.unauthorized();
@@ -26,4 +27,20 @@ export const listHandler = asyncHandler(async (req: Request, res: Response) => {
 export const getHandler = asyncHandler(async (req: Request, res: Response) => {
   const simulation = await interviewService.getInterview(uid(req), req.params.id);
   res.json({ simulation });
+});
+
+/**
+ * Transcribe una respuesta grabada en voz. El audio se procesa en memoria y no se
+ * guarda; la app muestra el texto para que el usuario lo revise y corrija.
+ */
+export const transcribeHandler = asyncHandler(async (req: Request, res: Response) => {
+  uid(req);
+  const file = req.file;
+  if (!file) throw AppError.badRequest('Adjunta el audio en el campo "audio"', 'AUDIO_REQUIRED');
+  const transcription = await transcribeAudio({
+    buffer: file.buffer,
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+  });
+  res.json({ transcription });
 });

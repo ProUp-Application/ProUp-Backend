@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { logger } from './lib/logger';
+import { qaLlmFailureMiddleware } from './lib/qaContext';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import apiRoutes, { healthRoutes } from './routes';
 
@@ -13,6 +14,8 @@ export function createApp() {
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
   app.use(pinoHttp({ logger }));
+  // Solo QA (apagado salvo QA_LLM_FAILURE_SIMULATION=true): simular caída del LLM
+  app.use(qaLlmFailureMiddleware());
 
   // Health check (para plataformas de despliegue y para el cliente)
   app.use('/health', healthRoutes);

@@ -167,14 +167,20 @@ model AnalysisRequest {
 model AnalysisResult {
   id                String             @id @default(uuid()) @db.Uuid
   analysisRequestId String             @unique @map("analysis_request_id") @db.Uuid
-  // Scores en escala entera 0-100 (calculados on-device)
+  // Scores en escala entera 0-100 (calculados on-device).
+  // Vestimenta y postura son NULL cuando no se ven en la foto (p. ej. en un primer
+  // plano no se evalúan pantalón, calzado ni postura corporal): no se asumen.
   faceScore         Int                @map("face_score")
-  clothingScore     Int                @map("clothing_score")
-  postureScore      Int                @map("posture_score")
+  clothingScore     Int?               @map("clothing_score")
+  postureScore      Int?               @map("posture_score")
   contextScore      Int                @map("context_score")
   overallScore      Int                @map("overall_score")
   clothingFormality ClothingFormality? @map("clothing_formality")
   emotionDetected   String?            @map("emotion_detected")
+  // Encuadre detectado on-device: PRIMER_PLANO | MEDIO_CUERPO | CUERPO_COMPLETO
+  frameType         String?            @map("frame_type")
+  // Qué se evaluó, qué no y por qué, con la evidencia visible de cada puntaje
+  assessment        Json?
   // Métricas crudas no biométricas (no reconstruyen el rostro)
   rawMetrics        Json?              @map("raw_metrics")
   createdAt         DateTime           @default(now()) @map("created_at")
@@ -232,6 +238,8 @@ model InterviewSimulation {
   responses       Json? // respuestas del usuario
   strengths       Json? // fortalezas detectadas
   improvements    Json? // puntos a mejorar
+  // Retroalimentación por pregunta: [{ index, score, feedback, durationSeconds, mode }]
+  questionFeedback Json? @map("question_feedback")
   feedback        String?
   createdAt       DateTime @default(now()) @map("created_at")
 

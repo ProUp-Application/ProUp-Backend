@@ -16,6 +16,13 @@ const schema = z.object({
   GROQ_MODEL: z.string().default('openai/gpt-oss-120b'),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-1.5-flash'),
+
+  // Solo QA: permite simular la caída del LLM con la cabecera x-simulate-llm-failure.
+  // Apagado por defecto; no activarlo en producción.
+  QA_LLM_FAILURE_SIMULATION: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 const parsed = schema.safeParse(process.env);

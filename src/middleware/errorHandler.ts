@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
+import { MulterError } from 'multer';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { AppError } from '../utils/AppError';
@@ -13,13 +14,30 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     });
   }
 
-  // Errores de validación (zod)
+  // Errores de validación (zod): el mensaje dice QUÉ campo falla, no solo "Datos inválidos"
   if (err instanceof ZodError) {
+    const flat = err.flatten();
+    const first =
+      Object.values(flat.fieldErrors as Record<string, string[] | undefined>).flat().find(Boolean) ??
+      flat.formErrors[0];
     return res.status(422).json({
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Datos inválidos',
-        details: err.flatten().fieldErrors,
+        message: first ?? 'Datos inválidos',
+        details: flat.fieldErrors,
+      },
+    });
+  }
+
+  // Archivo demasiado grande u otro error al recibir un archivo
+  if (err instanceof MulterError) {
+    const tooLarge = err.code === 'LIMIT_FILE_SIZE';
+    return res.status(tooLarge ? 413 : 400).json({
+      error: {
+        code: tooLarge ? 'FILE_TOO_LARGE' : 'UPLOAD_ERROR',
+        message: tooLarge
+          ? 'El archivo es demasiado grande. Usa uno de menos de 8 MB.'
+          : 'No se pudo recibir el archivo. Inténtalo de nuevo.',
       },
     });
   }
